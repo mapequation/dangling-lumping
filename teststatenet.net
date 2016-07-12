@@ -1,0 +1,24 @@
+# Number of states with order 1: 0
+# Number of states with order 2: 3
+# Number of states with order 3: 1
+# Number of states: 4
+# Number of links: 3
+# Total weight: 4
+# Conditional entropy: 0.5
+*States 4
+#stateId ==> (physicalId, outWeight)
+0 3 2
+1 4 0
+2 5 2
+3 6 0
+*Arcs 3
+#(source target) ==> weight
+0 1 1
+0 2 1
+2 3 2
+*Contexts
+#stateId <== (physicalId priorId [history...])
+0 3 2 1
+1 4 3
+2 5 3
+3 6 5
