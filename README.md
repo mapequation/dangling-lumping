@@ -1,4 +1,4 @@
-# Significance clustering
+# Dangling state node lumping
 
 
 ## Author:
