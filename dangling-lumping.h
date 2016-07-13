@@ -126,31 +126,20 @@ void lumpDanglings(StateNetwork &statenetwork,std::mt19937 &mtrand){
 	int Nlumpings = 0;
 
 	cout << "Lumping dangling state nodes:" << endl;
+
+	// First loop sets updated stateIds of non-dangling state nodes and state nodes in dangling physical nodes, which are lumped into one state node
 	int updatedStateId = 0;
 	for(vector<StateNode>::iterator it = statenetwork.stateNodes.begin(); it != statenetwork.stateNodes.end(); it++){
 		if(it->outWeight > epsilon){
+			// Set updated stateIds for non-dangling state nodes
 			it->stateId = updatedStateId;
 			updatedStateId++;
 		}
 		else{
-			// Lump with non-dangling state node in the same physical node
+			// Lump all dangling state nodes into one state node in dangling physical nodes, and update the stateIds
 			int NnonDanglings = statenetwork.physNodes[it->physId].stateNodeNonDanglingIndices.size();
-			if(NnonDanglings > 0){
-				std::uniform_int_distribution<int> randInt(0,NnonDanglings-1);
-				// Find random state node
-				int lumpedStateId = statenetwork.physNodes[it->physId].stateNodeNonDanglingIndices[randInt(mtrand)];
-				// Add context to lumped state node
-				statenetwork.stateNodes[lumpedStateId].contexts.insert(statenetwork.stateNodes[lumpedStateId].contexts.begin(),it->contexts.begin(),it->contexts.end());
-				
-				// Update state id to point to lumped state node and make it inactive
-				it->stateId = lumpedStateId;
-				it->active = false;
-				// Number of state nodes reduces by 1
-				statenetwork.NstateNodes--;
-				Nlumpings++;
+			if(NnonDanglings == 0){
 
-			}
-			else{
 				// When all state nodes are dangling, lump them to the first dangling state node id of the physical node
 				physDanglings.insert(it->physId);
 				// Id of first dangling state node
@@ -163,8 +152,8 @@ void lumpDanglings(StateNetwork &statenetwork,std::mt19937 &mtrand){
 				else{
 					// Add context to lumped state node
 					statenetwork.stateNodes[lumpedStateId].contexts.insert(statenetwork.stateNodes[lumpedStateId].contexts.begin(),it->contexts.begin(),it->contexts.end());
-					// Update state id to point to lumped state node and make it inactive
-					it->stateId = lumpedStateId;
+					// Update state id to point to lumped state node with upodated stateId and make it inactive
+					it->stateId = statenetwork.stateNodes[lumpedStateId].stateId;
 					it->active = false;
 					// Number of state nodes reduces by 1
 					statenetwork.NstateNodes--;
@@ -173,9 +162,36 @@ void lumpDanglings(StateNetwork &statenetwork,std::mt19937 &mtrand){
 			}
 		}
 	}
+
+	// Second loop sets updated stateIds of dangling state nodes in physical nodes with non-dangling state nodes
+	for(vector<StateNode>::iterator it = statenetwork.stateNodes.begin(); it != statenetwork.stateNodes.end(); it++){
+
+		if(it->outWeight < epsilon){
+			int NnonDanglings = statenetwork.physNodes[it->physId].stateNodeNonDanglingIndices.size();
+			if(NnonDanglings > 0){
+
+				std::uniform_int_distribution<int> randInt(0,NnonDanglings-1);
+				// Find random state node
+				int lumpedStateId = statenetwork.physNodes[it->physId].stateNodeNonDanglingIndices[randInt(mtrand)];
+				// Add context to lumped state node
+				statenetwork.stateNodes[lumpedStateId].contexts.insert(statenetwork.stateNodes[lumpedStateId].contexts.begin(),it->contexts.begin(),it->contexts.end());
+				
+				// Update state id to point to lumped state node and make it inactive
+				it->stateId = statenetwork.stateNodes[lumpedStateId].stateId;
+
+				it->active = false;
+				// Number of state nodes reduces by 1
+				statenetwork.NstateNodes--;
+				Nlumpings++;
+
+			}
+		}
+	}
+
 	statenetwork.NphysDanglings = physDanglings.size();
 	cout << "-->Lumped " << Nlumpings << " dangling state nodes." << endl;
-	cout << "-->Found " << statenetwork.NphysDanglings << " physical nodes without non-dangling state nodes. Lumped into a single dangling state node in each physical node." << endl;
+	cout << "-->Found " << statenetwork.NphysDanglings << " dangling physical nodes. Lumped dangling state nodes into a single dangling state node." << endl;
+
 }
 
 void loadStateNetwork(StateNetwork &statenetwork){
