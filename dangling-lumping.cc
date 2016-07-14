@@ -63,17 +63,15 @@ int main(int argc,char *argv[]){
   cout << "-->Will read state network from file: " << inFileName << endl;
   cout << "-->Will write processed state network to file: " << outFileName << endl;
 
-  std::mt19937 mtrand(seed);
+  std::mt19937 mtRand(seed);
 
-  StateNetwork statenetwork(inFileName,outFileName);
+  StateNetwork statenetwork(inFileName,outFileName,mtRand);
 
-  loadStateNetwork(statenetwork);
+  statenetwork.loadStateNetwork();
 
-  lumpDanglings(statenetwork,mtrand);
+  statenetwork.lumpDanglings();
 
-  calcEntropyRate(statenetwork);
-
-  printStateNetwork(statenetwork);
+  statenetwork.printStateNetwork();
 
 }
 
