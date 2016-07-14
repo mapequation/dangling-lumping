@@ -143,17 +143,17 @@ void lumpDanglings(StateNetwork &statenetwork,std::mt19937 &mtrand){
 				// When all state nodes are dangling, lump them to the first dangling state node id of the physical node
 				physDanglings.insert(it->physId);
 				// Id of first dangling state node
-				int lumpedStateId = statenetwork.physNodes[it->physId].stateNodeDanglingIndices[0];
-				if(lumpedStateId == it->stateId){
-					// The first dangling state node remains
+				int lumpedStateIndex = statenetwork.physNodes[it->physId].stateNodeDanglingIndices[0];
+				if(lumpedStateIndex == it->stateId){
+					// The first dangling state node in dangling physical node remains
 					it->stateId = updatedStateId;
 					updatedStateId++;
 				}	
 				else{
 					// Add context to lumped state node
-					statenetwork.stateNodes[lumpedStateId].contexts.insert(statenetwork.stateNodes[lumpedStateId].contexts.begin(),it->contexts.begin(),it->contexts.end());
+					statenetwork.stateNodes[lumpedStateIndex].contexts.insert(statenetwork.stateNodes[lumpedStateIndex].contexts.begin(),it->contexts.begin(),it->contexts.end());
 					// Update state id to point to lumped state node with upodated stateId and make it inactive
-					it->stateId = statenetwork.stateNodes[lumpedStateId].stateId;
+					it->stateId = statenetwork.stateNodes[lumpedStateIndex].stateId;
 					it->active = false;
 					// Number of state nodes reduces by 1
 					statenetwork.NstateNodes--;
@@ -172,12 +172,12 @@ void lumpDanglings(StateNetwork &statenetwork,std::mt19937 &mtrand){
 
 				std::uniform_int_distribution<int> randInt(0,NnonDanglings-1);
 				// Find random state node
-				int lumpedStateId = statenetwork.physNodes[it->physId].stateNodeNonDanglingIndices[randInt(mtrand)];
+				int lumpedStateIndex = statenetwork.physNodes[it->physId].stateNodeNonDanglingIndices[randInt(mtrand)];
 				// Add context to lumped state node
-				statenetwork.stateNodes[lumpedStateId].contexts.insert(statenetwork.stateNodes[lumpedStateId].contexts.begin(),it->contexts.begin(),it->contexts.end());
+				statenetwork.stateNodes[lumpedStateIndex].contexts.insert(statenetwork.stateNodes[lumpedStateIndex].contexts.begin(),it->contexts.begin(),it->contexts.end());
 				
 				// Update state id to point to lumped state node and make it inactive
-				it->stateId = statenetwork.stateNodes[lumpedStateId].stateId;
+				it->stateId = statenetwork.stateNodes[lumpedStateIndex].stateId;
 
 				it->active = false;
 				// Number of state nodes reduces by 1
@@ -261,8 +261,8 @@ void loadStateNetwork(StateNetwork &statenetwork){
 	ss.clear();
 	ss.str(line);
 	ss >> buf;
-	if(buf != "*Arcs"){
-		cout << "Expected *Arcs but read " << buf << ", exiting..." << endl;
+	if(buf != "*Arcs" && buf != "*Links"){
+		cout << "Expected *Arcs or *Links but read " << buf << ", exiting..." << endl;
 		exit(-1);
 	}
 	ss >> buf;
@@ -325,11 +325,12 @@ void printStateNetwork(StateNetwork &statenetwork){
   outfile << "# Number of state nodes: " << statenetwork.NstateNodes << "\n";
   outfile << "# Number of dangling physical (and state) nodes: " << statenetwork.NphysDanglings << "\n";
   outfile << "# Number of links: " << statenetwork.Nlinks << "\n";
+  outfile << "# Number of contexts: " << statenetwork.Ncontexts << "\n";
   outfile << "# Total weight: " << statenetwork.totWeight << "\n";
   outfile << "# Entropy rate: " << statenetwork.entropyRate << "\n";
 	cout << "done!" << endl;
 
-	cout << "-->Writing state nodes..." << flush;
+	cout << "-->Writing " << statenetwork.NstateNodes << " state nodes..." << flush;
 	outfile << "*States " << statenetwork.NstateNodes << "\n";
 	int index = 0;
 	for(vector<StateNode>::iterator it = statenetwork.stateNodes.begin(); it != statenetwork.stateNodes.end(); it++){
@@ -341,8 +342,8 @@ void printStateNetwork(StateNetwork &statenetwork){
 	}
 	cout << "done!" << endl;
 
-	cout << "-->Writing links..." << flush;
-	outfile << "*Arcs " << statenetwork.Nlinks << "\n";
+	cout << "-->Writing " << statenetwork.Nlinks << " links..." << flush;
+	outfile << "*Links " << statenetwork.Nlinks << "\n";
 	for(vector<StateNode>::iterator it = statenetwork.stateNodes.begin(); it != statenetwork.stateNodes.end(); it++){
 		if(it->active){
 			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
@@ -353,7 +354,7 @@ void printStateNetwork(StateNetwork &statenetwork){
 	}
 	cout << "done!" << endl;
 
-	cout << "-->Writing contexts..." << flush;
+	cout << "-->Writing " << statenetwork.Ncontexts << " contexts..." << flush;
 	outfile << "*Contexts \n";
 	index = 0;
 	for(vector<StateNode>::iterator it = statenetwork.stateNodes.begin(); it != statenetwork.stateNodes.end(); it++){
