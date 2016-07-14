@@ -345,6 +345,7 @@ void StateNetwork::printStateNetwork(){
 
 	cout << "-->Writing " << NstateNodes << " state nodes..." << flush;
 	ofs << "*States " << NstateNodes << "\n";
+	ofs << "#stateId ==> (physicalId, outWeight)\n";
 	int index = 0;
 	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		if(it->active){
@@ -357,6 +358,7 @@ void StateNetwork::printStateNetwork(){
 
 	cout << "-->Writing " << Nlinks << " links..." << flush;
 	ofs << "*Links " << Nlinks << "\n";
+	ofs << "#(source target) ==> weight\n";
 	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		if(it->active){
 			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
@@ -369,6 +371,7 @@ void StateNetwork::printStateNetwork(){
 
 	cout << "-->Writing " << Ncontexts << " contexts..." << flush;
 	ofs << "*Contexts \n";
+	ofs << "#stateId <== (physicalId priorId [history...])\n";
 	index = 0;
 	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		if(it->active){
