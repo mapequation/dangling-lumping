@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 using namespace std;
-const double epsilon = 1e-10;
+const double epsilon = 1e-15;
 
 unsigned stou(char *s);
 
