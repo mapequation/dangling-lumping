@@ -86,9 +86,14 @@ PhysNode::PhysNode(){
 class StateNetwork{
 private:
 	void calcEntropyRate();
+	bool readLines(ifstream &ifs,string &line,vector<string> &lines);
 	string inFileName;
 	string outFileName;
 	mt19937 &mtRand;
+	ifstream ifs;
+  string line = "First line";
+  bool keepReading = true;
+  int Nbatches = 0;
 	int NphysNodes = 0;
 	int NstateNodes = 0;
 	int Nlinks = 0;
@@ -98,14 +103,15 @@ private:
 	double totWeight = 0.0;
 	double entropyRate = 0.0;
 	unordered_map<int,PhysNode> physNodes;
-	vector<StateNode> stateNodes;
+	unordered_map<int,StateNode> stateNodes;
 
 public:
 	StateNetwork(string infilename,string outfilename,mt19937 &mtrand);
 	
 	void lumpDanglings();
-	void loadStateNetwork();
-	void printStateNetwork();
+	bool loadStateNetworkBatch();
+	void printStateNetworkBatch();
+	void compileBatches();
 
 };
 
@@ -113,24 +119,41 @@ StateNetwork::StateNetwork(string infilename,string outfilename,mt19937 &mtrand)
 	inFileName = infilename;
 	outFileName = outfilename;
 	mtRand = mtrand;
+  
+  // Open state network
+	ifs.open(inFileName.c_str());
+	if(!ifs){
+		cout << "failed to open \"" << inFileName << "\" exiting..." << endl;
+		exit(-1);
+	}
+
 }
 
 void StateNetwork::calcEntropyRate(){
 	
 	entropyRate = 0.0;
 
-	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-		if(it->active){
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+	StateNode &stateNode = it->second;
+		if(stateNode.active){
 			double h = 0.0;
-			for(vector<pair<int,double> >::iterator it_link = it->links.begin(); it_link != it->links.end(); it_link++){
-				double p = it_link->second/it->outWeight;
+			for(vector<pair<int,double> >::iterator it_link = stateNode.links.begin(); it_link != stateNode.links.end(); it_link++){
+				double p = it_link->second/stateNode.outWeight;
 				h -= p*log(p);
 			}
-			entropyRate += it->outWeight/totWeight*h/log(2.0);
+			entropyRate += stateNode.outWeight/totWeight*h/log(2.0);
 		}
 	}
 
 }
+
+// void StateNetwork::lumpDanglings(){
+
+// 	unordered_set<int> physDanglings;
+// 	int Nlumpings = 0;
+	
+
+// }
 
 void StateNetwork::lumpDanglings(){
 
@@ -141,32 +164,34 @@ void StateNetwork::lumpDanglings(){
 
 	// First loop sets updated stateIds of non-dangling state nodes and state nodes in dangling physical nodes, which are lumped into one state node
 	int updatedStateId = 0;
-	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-		if(it->outWeight > epsilon){
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
+
+		if(stateNode.outWeight > epsilon){
 			// Set updated stateIds for non-dangling state nodes
-			it->stateId = updatedStateId;
+			stateNode.stateId = updatedStateId;
 			updatedStateId++;
 		}
 		else{
 			// Lump all dangling state nodes into one state node in dangling physical nodes, and update the stateIds
-			int NnonDanglings = physNodes[it->physId].stateNodeNonDanglingIndices.size();
+			int NnonDanglings = physNodes[stateNode.physId].stateNodeNonDanglingIndices.size();
 			if(NnonDanglings == 0){
 
 				// When all state nodes are dangling, lump them to the first dangling state node id of the physical node
-				physDanglings.insert(it->physId);
+				physDanglings.insert(stateNode.physId);
 				// Id of first dangling state node
-				int lumpedStateIndex = physNodes[it->physId].stateNodeDanglingIndices[0];
-				if(lumpedStateIndex == it->stateId){
+				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeDanglingIndices[0];
+				if(lumpedStateIndex == stateNode.stateId){
 					// The first dangling state node in dangling physical node remains
-					it->stateId = updatedStateId;
+					stateNode.stateId = updatedStateId;
 					updatedStateId++;
 				}	
 				else{
 					// Add context to lumped state node
-					stateNodes[lumpedStateIndex].contexts.insert(stateNodes[lumpedStateIndex].contexts.begin(),it->contexts.begin(),it->contexts.end());
+					stateNodes[lumpedStateIndex].contexts.insert(stateNodes[lumpedStateIndex].contexts.begin(),stateNode.contexts.begin(),stateNode.contexts.end());
 					// Update state id to point to lumped state node with upodated stateId and make it inactive
-					it->stateId = stateNodes[lumpedStateIndex].stateId;
-					it->active = false;
+					stateNode.stateId = stateNodes[lumpedStateIndex].stateId;
+					stateNode.active = false;
 					// Number of state nodes reduces by 1
 					NstateNodes--;
 					Nlumpings++;
@@ -176,22 +201,23 @@ void StateNetwork::lumpDanglings(){
 	}
 
 	// Second loop sets updated stateIds of dangling state nodes in physical nodes with non-dangling state nodes
-	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
 
-		if(it->outWeight < epsilon){
-			int NnonDanglings = physNodes[it->physId].stateNodeNonDanglingIndices.size();
+		if(stateNode.outWeight < epsilon){
+			int NnonDanglings = physNodes[stateNode.physId].stateNodeNonDanglingIndices.size();
 			if(NnonDanglings > 0){
 
 				uniform_int_distribution<int> randInt(0,NnonDanglings-1);
 				// Find random state node
-				int lumpedStateIndex = physNodes[it->physId].stateNodeNonDanglingIndices[randInt(mtRand)];
+				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeNonDanglingIndices[randInt(mtRand)];
 				// Add context to lumped state node
-				stateNodes[lumpedStateIndex].contexts.insert(stateNodes[lumpedStateIndex].contexts.begin(),it->contexts.begin(),it->contexts.end());
+				stateNodes[lumpedStateIndex].contexts.insert(stateNodes[lumpedStateIndex].contexts.begin(),stateNode.contexts.begin(),stateNode.contexts.end());
 				
 				// Update state id to point to lumped state node and make it inactive
-				it->stateId = stateNodes[lumpedStateIndex].stateId;
+				stateNode.stateId = stateNodes[lumpedStateIndex].stateId;
 
-				it->active = false;
+				stateNode.active = false;
 				// Number of state nodes reduces by 1
 				NstateNodes--;
 				Nlumpings++;
@@ -206,87 +232,113 @@ void StateNetwork::lumpDanglings(){
 
 }
 
-void StateNetwork::loadStateNetwork(){
+bool StateNetwork::readLines(ifstream &ifs,string &line,vector<string> &lines){
+	
+	while(getline(ifs,line)){
+		if(line[0] == '*'){
+			return true;
+		}
+		if(line[0] != '-' && line[0] != '#'){
+			lines.push_back(line);
+		}
+	}
 
-	string line;
+	return false; // Reached end of file
+}
+
+bool StateNetwork::loadStateNetworkBatch(){
+
+	vector<string> stateLines;
+	vector<string> linkLines;
+	vector<string> contextLines;
+	bool readStates = false;
+	bool readLinks = false;
+	bool readContexts = false;
 	string buf;
 	istringstream ss;
 
-  // ************************* Read state network ************************* //
-	ifstream ifs(inFileName.c_str());
-	if(!ifs){
-		cout << "failed to open \"" << inFileName << "\" exiting..." << endl;
-		exit(-1);
+	// ************************* Read statefile batch ************************* //
+	
+	// Read until next data label. Return false if no more data labels
+	if(keepReading){
+		cout << "Reading statefile batch " << Nbatches+1 << ":" << endl;
+		if(line[0] != '*'){
+			while(getline(ifs,line)){
+				if(line[0] == '*')
+					break;
+			}
+		}
 	}
 	else{
-		cout << "Reading " << inFileName << ":" << endl;
+		cout << "No more statefile batches to read." << endl;
+		return false;
 	}
 
-	// Skip header lines starting with #
-	while(getline(ifs,line)){
-		if(line[0] != '#')
-			break;
-	}
+	while(!readStates || !readLinks || !readContexts){
 
-	// ************************* Read states ************************* //
-	ss.clear();
-	ss.str(line);
-	ss >> buf;
-	if(buf != "*States"){
-		cout << "Expected *States but read " << buf << ", exiting..." << endl;
-		exit(-1);
-	}
-	ss >> buf;
-	NstateNodes = atoi(buf.c_str());
-	cout << "-->Reading " << NstateNodes  << " state nodes..." << flush;
-	stateNodes = vector<StateNode>(NstateNodes);
-	for(int i=0;i<NstateNodes;i++){
-		getline(ifs,line);
-		if(line[0] != '#'){
-			ss.clear();
-			ss.str(line);
-			ss >> buf;
-			int stateId = atoi(buf.c_str());
-			ss >> buf;
-			int physId = atoi(buf.c_str());
-	  	ss >> buf;
-	  	double outWeight = atof(buf.c_str());
-	  	totWeight += outWeight;
-			if(outWeight > epsilon)
-				physNodes[physId].stateNodeNonDanglingIndices.push_back(stateId);
-			else{
-				physNodes[physId].stateNodeDanglingIndices.push_back(stateId);
-				Ndanglings++;
-			}
-			stateNodes[stateId] = StateNode(stateId,physId,outWeight);
+		ss.clear();
+		ss.str(line);
+		ss >> buf;
+		if(!readStates && buf == "*States"){
+			cout << "-->Reading states..." << flush;
+			readStates = true;
+			keepReading = readLines(ifs,line,stateLines);
+			NstateNodes = stateLines.size();
+			cout << "found " << NstateNodes << " states." << endl;
+		}
+		else if(!readLinks && buf == "*Links"){
+			cout << "-->Reading links..." << flush;
+			readLinks = true;
+			keepReading = readLines(ifs,line,linkLines);
+			Nlinks = linkLines.size();
+			cout << "found " << Nlinks << " links." << endl;
+		}
+		else if(!readContexts && buf == "*Contexts"){
+			cout << "-->Reading contexts..." << flush;
+			readContexts = true;
+			keepReading = readLines(ifs,line,contextLines);
+			Ncontexts = contextLines.size();
+			cout << "found " << Ncontexts << " contexts." << endl;
 		}
 		else{
-			// One extra step for each # comment.
-			i--;
+			cout << "Expected *States, *Links, or *Contexts, but found " << buf << " exiting..." << endl;
+			exit(-1);
 		}
+	}
+
+	// ************************* Process statefile batch ************************* //
+	Nbatches++;
+	cout << "Processing statefile batch " << Nbatches << ":" << endl;
+
+	//Process states
+	cout << "-->Processing " << NstateNodes  << " state nodes..." << flush;
+	for(int i=0;i<NstateNodes;i++){
+
+		ss.clear();
+		ss.str(stateLines[i]);
+		ss >> buf;
+		int stateId = atoi(buf.c_str());
+		ss >> buf;
+		int physId = atoi(buf.c_str());
+	  ss >> buf;
+	  double outWeight = atof(buf.c_str());
+	  totWeight += outWeight;
+		if(outWeight > epsilon)
+			physNodes[physId].stateNodeNonDanglingIndices.push_back(stateId);
+		else{
+			physNodes[physId].stateNodeDanglingIndices.push_back(stateId);
+			Ndanglings++;
+		}
+		stateNodes[stateId] = StateNode(stateId,physId,outWeight);
 	}
 	NphysNodes = physNodes.size();
 	cout << "found " << Ndanglings << " dangling state nodes in " << NphysNodes << " physical nodes, done!" << endl;
 
-	// ************************* Read arcs ************************* //
-	getline(ifs,line);
-	ss.clear();
-	ss.str(line);
-	ss >> buf;
-	if(buf != "*Arcs" && buf != "*Links"){
-		cout << "Expected *Arcs or *Links but read " << buf << ", exiting..." << endl;
-		exit(-1);
-	}
-	ss >> buf;
-	Nlinks = atoi(buf.c_str());
-	cout << "-->Reading " << Nlinks  << " state links..." << flush;
-
-
+	// Process links 
+	cout << "-->Processing " << Nlinks  << " links..." << flush;
 	for(int i=0;i<Nlinks;i++){
-		getline(ifs,line);
-		if(line[0] != '#'){
 			ss.clear();
-			ss.str(line);
+			ss.str(linkLines[i]);
 			ss >> buf;
 			int source = atoi(buf.c_str());
 			ss >> buf;
@@ -294,40 +346,26 @@ void StateNetwork::loadStateNetwork(){
 			ss >> buf;
 			double linkWeight = atof(buf.c_str());
 			stateNodes[source].links.push_back(make_pair(target,linkWeight));
- 		}
- 		else{
- 			// One extra step for each # comment.
- 			i--;
- 		}
 	}
  	cout << "done!" << endl;
 
-	// ************************* Read contexts ************************* //
-	getline(ifs,line);
-	ss.clear();
-	ss.str(line);
-	ss >> buf;
-	if(buf != "*Contexts" && buf != "*MemoryNodes"){
-		cout << "Expected *Contexts or *MemoryNodes but read " << buf << ", exiting..." << endl;
-		exit(-1);
-	}
-	cout << "-->Reading state node contexts..." << flush;
-	while(getline(ifs,line)){
-		if(line[0] != '#'){
+	// Process contexts
+	cout << "-->Processing " << Ncontexts  << " contexts..." << flush;
+	for(int i=0;i<Ncontexts;i++){
 			ss.clear();
-			ss.str(line);
+			ss.str(contextLines[i]);
 			ss >> buf;
 			int stateNodeId = atoi(buf.c_str());
-			string context = line.substr(buf.length()+1);
+			string context = contextLines[i].substr(buf.length()+1);
 			stateNodes[stateNodeId].contexts.push_back(context);
-			Ncontexts++;
- 		}
 	}
- 	cout << "found " << Ncontexts << ", done!" << endl;
+	cout << "done!" << endl;
+
+ 	return true;
 
 }
 
-void StateNetwork::printStateNetwork(){
+void StateNetwork::printStateNetworkBatch(){
 
   calcEntropyRate();
 
@@ -347,10 +385,11 @@ void StateNetwork::printStateNetwork(){
 	ofs << "*States " << NstateNodes << "\n";
 	ofs << "#stateId ==> (physicalId, outWeight)\n";
 	int index = 0;
-	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-		if(it->active){
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
+		if(stateNode.active){
 			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
-			ofs << it->stateId << " " << it->physId << " " << it->outWeight << "\n";
+			ofs << stateNode.stateId << " " << stateNode.physId << " " << stateNode.outWeight << "\n";
 		}
 		index++;
 	}
@@ -359,11 +398,12 @@ void StateNetwork::printStateNetwork(){
 	cout << "-->Writing " << Nlinks << " links..." << flush;
 	ofs << "*Links " << Nlinks << "\n";
 	ofs << "#(source target) ==> weight\n";
-	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-		if(it->active){
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
+		if(stateNode.active){
 			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
-			for(vector<pair<int,double> >::iterator it_link = it->links.begin(); it_link != it->links.end(); it_link++){
-				ofs << it->stateId << " " << stateNodes[it_link->first].stateId << " " << it_link->second << "\n";
+			for(vector<pair<int,double> >::iterator it_link = stateNode.links.begin(); it_link != stateNode.links.end(); it_link++){
+				ofs << stateNode.stateId << " " << stateNodes[it_link->first].stateId << " " << it_link->second << "\n";
 			}
 		}
 	}
@@ -373,16 +413,21 @@ void StateNetwork::printStateNetwork(){
 	ofs << "*Contexts \n";
 	ofs << "#stateId <== (physicalId priorId [history...])\n";
 	index = 0;
-	for(vector<StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-		if(it->active){
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
+		if(stateNode.active){
 		// The state node has not been lumped to another node (but other nodes may have been lumped to it)
-			for(vector<string>::iterator it_context = it->contexts.begin(); it_context != it->contexts.end(); it_context++){
-				ofs << it->stateId << " " << (*it_context) << "\n";
+			for(vector<string>::iterator it_context = stateNode.contexts.begin(); it_context != stateNode.contexts.end(); it_context++){
+				ofs << stateNode.stateId << " " << (*it_context) << "\n";
 			}
 		}
 		index++;
 	}
 	cout << "done!" << endl;
+
+}
+
+void StateNetwork::compileBatches(){
 
 }
 
