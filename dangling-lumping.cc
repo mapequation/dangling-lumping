@@ -67,11 +67,20 @@ int main(int argc,char *argv[]){
 
   StateNetwork statenetwork(inFileName,outFileName,mtRand);
 
-  statenetwork.loadStateNetwork();
+  while(statenetwork.loadStateNetworkBatch()){
+    statenetwork.lumpDanglings();
+    if(statenetwork.keepReading || statenetwork.Nbatches > 1){
+      statenetwork.printStateNetworkBatch();
+      statenetwork.concludeBatch();
+    }
+    else{
+      statenetwork.printStateNetwork();
+      break;
+    }
+  }
 
-  statenetwork.lumpDanglings();
-
-  statenetwork.printStateNetwork();
+  if(statenetwork.Nbatches > 1)
+    statenetwork.compileBatches();
 
 }
 
