@@ -450,7 +450,7 @@ void StateNetwork::printStateNetwork(){
 
   ofstream ofs(outFileName.c_str());
 
-	cout << "Writing results to " << outFileName << ":" << endl;
+	cout << "No more batches, writing results to " << outFileName << ":" << endl;
 	cout << "-->Writing header comments..." << flush;
   ofs << "# Number of physical nodes: " << NphysNodes << "\n";
   ofs << "# Number of state nodes: " << NstateNodes << "\n";
