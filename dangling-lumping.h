@@ -87,6 +87,8 @@ class StateNetwork{
 private:
 	void calcEntropyRate();
 	bool readLines(ifstream &ifs,string &line,vector<string> &lines);
+
+	// For all batches
 	string inFileName;
 	string outFileName;
 	mt19937 &mtRand;
@@ -94,13 +96,17 @@ private:
   string line = "First line";
   bool keepReading = true;
   int Nbatches = 0;
+  double totWeight = 0.0;
+  unordered_map<int,int> stateNodeIdMapping;
+  int updatedStateId = 0;
+
+  // For each batch
 	int NphysNodes = 0;
 	int NstateNodes = 0;
 	int Nlinks = 0;
 	int Ndanglings = 0;
 	int Ncontexts = 0;
 	int NphysDanglings = 0;
-	double totWeight = 0.0;
 	double entropyRate = 0.0;
 	unordered_map<int,PhysNode> physNodes;
 	unordered_map<int,StateNode> stateNodes;
@@ -147,14 +153,6 @@ void StateNetwork::calcEntropyRate(){
 
 }
 
-// void StateNetwork::lumpDanglings(){
-
-// 	unordered_set<int> physDanglings;
-// 	int Nlumpings = 0;
-	
-
-// }
-
 void StateNetwork::lumpDanglings(){
 
 	unordered_set<int> physDanglings;
@@ -162,14 +160,13 @@ void StateNetwork::lumpDanglings(){
 
 	cout << "Lumping dangling state nodes:" << endl;
 
-	// First loop sets updated stateIds of non-dangling state nodes and state nodes in dangling physical nodes, which are lumped into one state node
-	int updatedStateId = 0;
+	// First loop records updated stateIds for lumped state nodes that other state nodes can be lumping to
 	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		StateNode &stateNode = it->second;
 
 		if(stateNode.outWeight > epsilon){
-			// Set updated stateIds for non-dangling state nodes
-			stateNode.stateId = updatedStateId;
+			// Record updated stateIds for non-dangling state nodes
+			stateNodeIdMapping[stateNode.stateId] = updatedStateId;
 			updatedStateId++;
 		}
 		else{
@@ -183,31 +180,40 @@ void StateNetwork::lumpDanglings(){
 				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeDanglingIndices[0];
 				if(lumpedStateIndex == stateNode.stateId){
 					// The first dangling state node in dangling physical node remains
-					stateNode.stateId = updatedStateId;
+					stateNodeIdMapping[stateNode.stateId] = updatedStateId;
 					updatedStateId++;
 				}	
-				else{
+			}
+		}
+	}
+
+	// Second loop records updated stateIds of lumping state nodes
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
+		if(stateNode.outWeight < epsilon){
+
+			int NnonDanglings = physNodes[stateNode.physId].stateNodeNonDanglingIndices.size();
+			
+			if(NnonDanglings == 0){
+	
+				// When all state nodes are dangling, lump them to the first dangling state node id of the physical node
+				// Id of first dangling state node
+				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeDanglingIndices[0];
+				if(lumpedStateIndex != stateNode.stateId){
+					// All but the first dangling state node in dangling physical node are lumping to the first dangling state node
 					// Add context to lumped state node
 					stateNodes[lumpedStateIndex].contexts.insert(stateNodes[lumpedStateIndex].contexts.begin(),stateNode.contexts.begin(),stateNode.contexts.end());
-					// Update state id to point to lumped state node with upodated stateId and make it inactive
-					stateNode.stateId = stateNodes[lumpedStateIndex].stateId;
+					// Record updated state id to point to lumped state node with updated stateId and make it inactive
+					stateNodeIdMapping[stateNode.stateId] = stateNodeIdMapping[stateNodes[lumpedStateIndex].stateId];
 					stateNode.active = false;
 					// Number of state nodes reduces by 1
 					NstateNodes--;
 					Nlumpings++;
 				}	
 			}
-		}
-	}
-
-	// Second loop sets updated stateIds of dangling state nodes in physical nodes with non-dangling state nodes
-	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-		StateNode &stateNode = it->second;
-
-		if(stateNode.outWeight < epsilon){
-			int NnonDanglings = physNodes[stateNode.physId].stateNodeNonDanglingIndices.size();
-			if(NnonDanglings > 0){
-
+			else{
+	
+				// When dangling state node can be moved to non-dangling state node
 				uniform_int_distribution<int> randInt(0,NnonDanglings-1);
 				// Find random state node
 				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeNonDanglingIndices[randInt(mtRand)];
@@ -215,13 +221,13 @@ void StateNetwork::lumpDanglings(){
 				stateNodes[lumpedStateIndex].contexts.insert(stateNodes[lumpedStateIndex].contexts.begin(),stateNode.contexts.begin(),stateNode.contexts.end());
 				
 				// Update state id to point to lumped state node and make it inactive
-				stateNode.stateId = stateNodes[lumpedStateIndex].stateId;
-
+				stateNodeIdMapping[stateNode.stateId] = stateNodeIdMapping[stateNodes[lumpedStateIndex].stateId];
+	
 				stateNode.active = false;
 				// Number of state nodes reduces by 1
 				NstateNodes--;
 				Nlumpings++;
-
+	
 			}
 		}
 	}
@@ -389,7 +395,7 @@ void StateNetwork::printStateNetworkBatch(){
 		StateNode &stateNode = it->second;
 		if(stateNode.active){
 			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
-			ofs << stateNode.stateId << " " << stateNode.physId << " " << stateNode.outWeight << "\n";
+			ofs << stateNodeIdMapping[stateNode.stateId] << " " << stateNode.physId << " " << stateNode.outWeight << "\n";
 		}
 		index++;
 	}
@@ -403,7 +409,7 @@ void StateNetwork::printStateNetworkBatch(){
 		if(stateNode.active){
 			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
 			for(vector<pair<int,double> >::iterator it_link = stateNode.links.begin(); it_link != stateNode.links.end(); it_link++){
-				ofs << stateNode.stateId << " " << stateNodes[it_link->first].stateId << " " << it_link->second << "\n";
+				ofs << stateNodeIdMapping[stateNode.stateId] << " " << stateNodeIdMapping[it_link->first] << " " << it_link->second << "\n";
 			}
 		}
 	}
@@ -418,7 +424,7 @@ void StateNetwork::printStateNetworkBatch(){
 		if(stateNode.active){
 		// The state node has not been lumped to another node (but other nodes may have been lumped to it)
 			for(vector<string>::iterator it_context = stateNode.contexts.begin(); it_context != stateNode.contexts.end(); it_context++){
-				ofs << stateNode.stateId << " " << (*it_context) << "\n";
+				ofs << stateNodeIdMapping[stateNode.stateId] << " " << (*it_context) << "\n";
 			}
 		}
 		index++;
