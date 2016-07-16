@@ -24,6 +24,8 @@ inline string to_string (const T& t){
 	return ss.str();
 }
 
+enum WriteMode { STATENODES, LINKS, CONTEXTS };
+
 vector<string> tokenize(const string& str,string& delimiters){
 
 	vector<string> tokens;
@@ -85,29 +87,37 @@ PhysNode::PhysNode(){
 
 class StateNetwork{
 private:
-	void calcEntropyRate();
-	bool readLines(ifstream &ifs,string &line,vector<string> &lines);
+	double calcEntropyRate();
+	bool readLines(string &line,vector<string> &lines);
+	void writeLines(ifstream &ifs_tmp, ofstream &ofs, WriteMode &writeMode, string &line,int &batchNr);
 
 	// For all batches
 	string inFileName;
 	string outFileName;
+	string tmpOutFileName;
 	mt19937 &mtRand;
 	ifstream ifs;
   string line = "First line";
-  bool keepReading = true;
-  int Nbatches = 0;
   double totWeight = 0.0;
-  unordered_map<int,int> stateNodeIdMapping;
   int updatedStateId = 0;
+  double entropyRate = 0.0;
+  unordered_map<int,int> completeStateNodeIdMapping;
+  int totNphysNodes = 0;
+	int totNstateNodes = 0;
+	int totNlinks = 0;
+	int totNdanglings = 0;
+	int totNcontexts = 0;
+	int totNphysDanglings = 0;
 
   // For each batch
+  double weight = 0.0;
 	int NphysNodes = 0;
 	int NstateNodes = 0;
 	int Nlinks = 0;
 	int Ndanglings = 0;
 	int Ncontexts = 0;
 	int NphysDanglings = 0;
-	double entropyRate = 0.0;
+	unordered_map<int,int> stateNodeIdMapping;
 	unordered_map<int,PhysNode> physNodes;
 	unordered_map<int,StateNode> stateNodes;
 
@@ -117,13 +127,20 @@ public:
 	void lumpDanglings();
 	bool loadStateNetworkBatch();
 	void printStateNetworkBatch();
+	void printStateNetwork();
+	void concludeBatch();
 	void compileBatches();
+
+	bool keepReading = true;
+  int Nbatches = 0;
+
 
 };
 
 StateNetwork::StateNetwork(string infilename,string outfilename,mt19937 &mtrand) : mtRand(mtrand){
 	inFileName = infilename;
 	outFileName = outfilename;
+	tmpOutFileName = string(outFileName).append("_tmp");
 	mtRand = mtrand;
   
   // Open state network
@@ -135,21 +152,23 @@ StateNetwork::StateNetwork(string infilename,string outfilename,mt19937 &mtrand)
 
 }
 
-void StateNetwork::calcEntropyRate(){
+double StateNetwork::calcEntropyRate(){
 	
-	entropyRate = 0.0;
+	double h = 0.0;
 
 	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-	StateNode &stateNode = it->second;
+		StateNode &stateNode = it->second;
 		if(stateNode.active){
-			double h = 0.0;
+			double H = 0.0;
 			for(vector<pair<int,double> >::iterator it_link = stateNode.links.begin(); it_link != stateNode.links.end(); it_link++){
 				double p = it_link->second/stateNode.outWeight;
-				h -= p*log(p);
+				H -= p*log(p);
 			}
-			entropyRate += stateNode.outWeight/totWeight*h/log(2.0);
+			h += stateNode.outWeight*H/log(2.0);
 		}
 	}
+
+	return h;
 
 }
 
@@ -238,13 +257,13 @@ void StateNetwork::lumpDanglings(){
 
 }
 
-bool StateNetwork::readLines(ifstream &ifs,string &line,vector<string> &lines){
+bool StateNetwork::readLines(string &line,vector<string> &lines){
 	
 	while(getline(ifs,line)){
 		if(line[0] == '*'){
 			return true;
 		}
-		if(line[0] != '-' && line[0] != '#'){
+		else if(line[0] != '=' && line[0] != '#'){
 			lines.push_back(line);
 		}
 	}
@@ -263,11 +282,11 @@ bool StateNetwork::loadStateNetworkBatch(){
 	string buf;
 	istringstream ss;
 
-	// ************************* Read statefile batch ************************* //
+	// ************************* Read statenetwork batch ************************* //
 	
 	// Read until next data label. Return false if no more data labels
 	if(keepReading){
-		cout << "Reading statefile batch " << Nbatches+1 << ":" << endl;
+		cout << "Reading statenetwork, batch " << Nbatches+1 << ":" << endl;
 		if(line[0] != '*'){
 			while(getline(ifs,line)){
 				if(line[0] == '*')
@@ -276,7 +295,7 @@ bool StateNetwork::loadStateNetworkBatch(){
 		}
 	}
 	else{
-		cout << "No more statefile batches to read." << endl;
+		cout << "-->No more statenetwork batches to read." << endl;
 		return false;
 	}
 
@@ -288,21 +307,21 @@ bool StateNetwork::loadStateNetworkBatch(){
 		if(!readStates && buf == "*States"){
 			cout << "-->Reading states..." << flush;
 			readStates = true;
-			keepReading = readLines(ifs,line,stateLines);
+			keepReading = readLines(line,stateLines);
 			NstateNodes = stateLines.size();
 			cout << "found " << NstateNodes << " states." << endl;
 		}
 		else if(!readLinks && buf == "*Links"){
 			cout << "-->Reading links..." << flush;
 			readLinks = true;
-			keepReading = readLines(ifs,line,linkLines);
+			keepReading = readLines(line,linkLines);
 			Nlinks = linkLines.size();
 			cout << "found " << Nlinks << " links." << endl;
 		}
 		else if(!readContexts && buf == "*Contexts"){
 			cout << "-->Reading contexts..." << flush;
 			readContexts = true;
-			keepReading = readLines(ifs,line,contextLines);
+			keepReading = readLines(line,contextLines);
 			Ncontexts = contextLines.size();
 			cout << "found " << Ncontexts << " contexts." << endl;
 		}
@@ -312,9 +331,9 @@ bool StateNetwork::loadStateNetworkBatch(){
 		}
 	}
 
-	// ************************* Process statefile batch ************************* //
+	// ************************* Process statenetwork batch ************************* //
 	Nbatches++;
-	cout << "Processing statefile batch " << Nbatches << ":" << endl;
+	cout << "Processing statenetwork, batch " << Nbatches << ":" << endl;
 
 	//Process states
 	cout << "-->Processing " << NstateNodes  << " state nodes..." << flush;
@@ -328,7 +347,7 @@ bool StateNetwork::loadStateNetworkBatch(){
 		int physId = atoi(buf.c_str());
 	  ss >> buf;
 	  double outWeight = atof(buf.c_str());
-	  totWeight += outWeight;
+	  weight += outWeight;
 		if(outWeight > epsilon)
 			physNodes[physId].stateNodeNonDanglingIndices.push_back(stateId);
 		else{
@@ -373,43 +392,37 @@ bool StateNetwork::loadStateNetworkBatch(){
 
 void StateNetwork::printStateNetworkBatch(){
 
-  calcEntropyRate();
-
-	cout << "Writing to " << outFileName << ":" << endl;
-  ofstream ofs(outFileName);
-  cout << "-->Writing header comments..." << flush;
-  ofs << "# Number of physical nodes: " << NphysNodes << "\n";
-  ofs << "# Number of state nodes: " << NstateNodes << "\n";
-  ofs << "# Number of dangling physical (and state) nodes: " << NphysDanglings << "\n";
-  ofs << "# Number of links: " << Nlinks << "\n";
-  ofs << "# Number of contexts: " << Ncontexts << "\n";
-  ofs << "# Total weight: " << totWeight << "\n";
-  ofs << "# Entropy rate: " << entropyRate << "\n";
-	cout << "done!" << endl;
+  ofstream ofs;
+	if(Nbatches == 1){ // Start with empty file for first batch
+		ofs.open(tmpOutFileName.c_str());
+	}
+	else{ // Append to existing file
+		ofs.open(tmpOutFileName.c_str(),ofstream::app);
+	}
+	cout << "Writing temporary results to " << tmpOutFileName << ":" << endl;
 
 	cout << "-->Writing " << NstateNodes << " state nodes..." << flush;
-	ofs << "*States " << NstateNodes << "\n";
+	// To order state nodes by id
+	map<int,int> orderedStateNodeIds;
+	for(unordered_map<int,int>::iterator it = stateNodeIdMapping.begin(); it != stateNodeIdMapping.end(); it++)
+ 		orderedStateNodeIds[it->second] =	it->first;
+	ofs << "===== " << Nbatches << " =====\n";
+	ofs << "*States\n";
 	ofs << "#stateId ==> (physicalId, outWeight)\n";
-	int index = 0;
-	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
-		StateNode &stateNode = it->second;
-		if(stateNode.active){
-			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
-			ofs << stateNodeIdMapping[stateNode.stateId] << " " << stateNode.physId << " " << stateNode.outWeight << "\n";
-		}
-		index++;
+	for(map<int,int>::iterator it = orderedStateNodeIds.begin(); it != orderedStateNodeIds.end(); it++){
+		StateNode &stateNode = stateNodes[it->second];
+		ofs << stateNode.stateId << " " << stateNode.physId << " " << stateNode.outWeight << "\n";
 	}
 	cout << "done!" << endl;
 
 	cout << "-->Writing " << Nlinks << " links..." << flush;
-	ofs << "*Links " << Nlinks << "\n";
+	ofs << "*Links\n";
 	ofs << "#(source target) ==> weight\n";
 	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		StateNode &stateNode = it->second;
 		if(stateNode.active){
-			// The state node has not been lumped to another node (but other nodes may have been lumped to it)
 			for(vector<pair<int,double> >::iterator it_link = stateNode.links.begin(); it_link != stateNode.links.end(); it_link++){
-				ofs << stateNodeIdMapping[stateNode.stateId] << " " << stateNodeIdMapping[it_link->first] << " " << it_link->second << "\n";
+					ofs << stateNode.stateId << " " << it_link->first << " " << it_link->second << "\n";
 			}
 		}
 	}
@@ -418,7 +431,66 @@ void StateNetwork::printStateNetworkBatch(){
 	cout << "-->Writing " << Ncontexts << " contexts..." << flush;
 	ofs << "*Contexts \n";
 	ofs << "#stateId <== (physicalId priorId [history...])\n";
-	index = 0;
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
+		if(stateNode.active){
+		// The state node has not been lumped to another node (but other nodes may have been lumped to it)
+			for(vector<string>::iterator it_context = stateNode.contexts.begin(); it_context != stateNode.contexts.end(); it_context++){
+				ofs << stateNode.stateId << " " << (*it_context) << "\n";
+			}
+		}
+	}
+	cout << "done!" << endl;
+
+}
+
+void StateNetwork::printStateNetwork(){
+
+	entropyRate += calcEntropyRate();
+
+  ofstream ofs(outFileName.c_str());
+
+	cout << "Writing results to " << outFileName << ":" << endl;
+	cout << "-->Writing header comments..." << flush;
+  ofs << "# Number of physical nodes: " << NphysNodes << "\n";
+  ofs << "# Number of state nodes: " << NstateNodes << "\n";
+  ofs << "# Number of dangling physical (and state) nodes: " << NphysDanglings << "\n";
+  ofs << "# Number of links: " << Nlinks << "\n";
+  ofs << "# Number of contexts: " << Ncontexts << "\n";
+  ofs << "# Total weight: " << weight << "\n";
+  ofs << "# Entropy rate: " << entropyRate/totWeight << "\n";
+	cout << "done!" << endl;
+
+	cout << "-->Writing " << NstateNodes << " state nodes..." << flush;
+	// To order state nodes by id
+	map<int,int> orderedStateNodeIds;
+	for(unordered_map<int,int>::iterator it = stateNodeIdMapping.begin(); it != stateNodeIdMapping.end(); it++)
+ 		orderedStateNodeIds[it->second] =	it->first;
+	ofs << "===== " << Nbatches << " =====\n";
+	ofs << "*States\n";
+	ofs << "#stateId ==> (physicalId, outWeight)\n";
+	for(map<int,int>::iterator it = orderedStateNodeIds.begin(); it != orderedStateNodeIds.end(); it++){
+		StateNode &stateNode = stateNodes[it->second];
+		ofs << stateNodeIdMapping[stateNode.stateId] << " " << stateNode.physId << " " << stateNode.outWeight << "\n";
+	}
+	cout << "done!" << endl;
+
+	cout << "-->Writing " << Nlinks << " links..." << flush;
+	ofs << "*Links\n";
+	ofs << "#(source target) ==> weight\n";
+	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
+		StateNode &stateNode = it->second;
+		if(stateNode.active){
+			for(vector<pair<int,double> >::iterator it_link = stateNode.links.begin(); it_link != stateNode.links.end(); it_link++){
+					ofs << stateNodeIdMapping[stateNode.stateId] << " " << stateNodeIdMapping[it_link->first] << " " << it_link->second << "\n";
+			}
+		}
+	}
+	cout << "done!" << endl;
+
+	cout << "-->Writing " << Ncontexts << " contexts..." << flush;
+	ofs << "*Contexts \n";
+	ofs << "#stateId <== (physicalId priorId [history...])\n";
 	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		StateNode &stateNode = it->second;
 		if(stateNode.active){
@@ -427,15 +499,158 @@ void StateNetwork::printStateNetworkBatch(){
 				ofs << stateNodeIdMapping[stateNode.stateId] << " " << (*it_context) << "\n";
 			}
 		}
-		index++;
 	}
 	cout << "done!" << endl;
 
 }
 
-void StateNetwork::compileBatches(){
+void StateNetwork::concludeBatch(){
+
+	cout << "Concluding batch:" << endl;
+
+	entropyRate += calcEntropyRate();
+	totWeight += weight;
+	totNphysNodes += NphysNodes;
+	totNstateNodes += NstateNodes;
+	totNlinks += Nlinks;
+	totNdanglings += Ndanglings;
+	totNcontexts += Ncontexts;
+	totNphysDanglings += NphysDanglings;
+	weight = 0.0;
+	NphysNodes = 0;
+	NstateNodes = 0;
+	Nlinks = 0;
+	Ndanglings = 0;
+	Ncontexts = 0;
+	NphysDanglings = 0;
+
+	cout << "-->Current estimate of the entropy rate: " << entropyRate/totWeight << endl;
+
+	completeStateNodeIdMapping.insert(stateNodeIdMapping.begin(),stateNodeIdMapping.end());
+	stateNodeIdMapping.clear();
+	physNodes.clear();
+	stateNodes.clear();
 
 }
 
+void StateNetwork::compileBatches(){
 
+  ifstream ifs_tmp(tmpOutFileName.c_str());
+  ofstream ofs(outFileName);
+  string buf;
+	istringstream ss;
+	bool writeStates = false;
+	bool writeLinks = false;
+	bool writeContexts = false;
+	int batchNr = 1;
 
+	cout << "Writing final results to " << outFileName << ":" << endl;
+  
+  cout << "-->Writing header comments..." << flush;
+  ofs << "# Number of physical nodes: " << totNphysNodes << "\n";
+  ofs << "# Number of state nodes: " << totNstateNodes << "\n";
+  ofs << "# Number of dangling physical (and state) nodes: " << totNphysDanglings << "\n";
+  ofs << "# Number of links: " << totNlinks << "\n";
+  ofs << "# Number of contexts: " << totNcontexts << "\n";
+  ofs << "# Total weight: " << totWeight << "\n";
+  ofs << "# Entropy rate: " << entropyRate/totWeight << "\n";
+	cout << "done!" << endl;
+
+	cout << "-->Relabeling and writing " << totNstateNodes << " state nodes, " << totNlinks << " links, and " << totNcontexts << " contexts:" << endl;
+	// Copy lines directly until data format
+	while(getline(ifs_tmp,line)){
+		if(line[0] == '*'){
+			break;	
+		}
+		ofs << line << "\n";
+	}
+	while(!ifs_tmp.eof()){
+
+		if(!writeStates && !writeLinks && !writeContexts){
+			cout << "-->Batch " << batchNr << "/" << Nbatches << endl;
+		}
+		ofs << line << "\n";
+		ss.clear();
+		ss.str(line);
+		ss >> buf;
+		if(buf == "*States"){
+			cout << "-->Writing state nodes..." << flush;
+			writeStates = true;
+			WriteMode writeMode = STATENODES;
+			writeLines(ifs_tmp,ofs,writeMode,line,batchNr);
+		}
+		else if(buf == "*Links"){
+			cout << "-->Writing links..." << flush;
+			writeLinks = true;
+			WriteMode writeMode = LINKS;
+			writeLines(ifs_tmp,ofs,writeMode,line,batchNr);
+		}
+		else if(buf == "*Contexts"){
+			cout << "-->Writing contexts..." << flush;
+			writeContexts = true;
+			WriteMode writeMode = CONTEXTS;
+			writeLines(ifs_tmp,ofs,writeMode,line,batchNr);
+		}
+		else{
+			cout << "Failed on line: " << line << endl;
+		}
+		cout << "done!" << endl;
+		if(writeStates && writeLinks && writeContexts){
+			writeStates = false;
+			writeLinks = false;
+			writeContexts = false;
+			batchNr++;
+		}
+	}
+
+	remove( tmpOutFileName.c_str() );
+
+}
+
+void StateNetwork::writeLines(ifstream &ifs_tmp, ofstream &ofs, WriteMode &writeMode, string &line,int &batchNr){
+
+	string buf;
+	istringstream ss;
+
+	while(getline(ifs_tmp,line)){
+		if(line[0] != '*'){
+			if(line[0] != '=' && line[0] != '#'){
+				ss.clear();
+				ss.str(line);
+				ss >> buf;
+				if(writeMode == STATENODES){
+					int stateId = atoi(buf.c_str());
+					ss >> buf;
+					int physId = atoi(buf.c_str());
+	 				ss >> buf;
+	 				double outWeight = atof(buf.c_str());
+					ofs << completeStateNodeIdMapping[stateId] << " " << physId << " " << outWeight << "\n";
+				}
+				else if(writeMode == LINKS){
+					int source = atoi(buf.c_str());
+					ss >> buf;
+					int target = atoi(buf.c_str());
+					ss >> buf;
+					double linkWeight = atof(buf.c_str());
+					ofs << completeStateNodeIdMapping[source] << " " << completeStateNodeIdMapping[target] << " " << linkWeight << "\n";					
+				}
+				else if(writeMode == CONTEXTS){
+					int stateNodeId = atoi(buf.c_str());
+					string context = line.substr(buf.length()+1);
+					ofs << completeStateNodeIdMapping[stateNodeId] << " " << context << "\n";
+				}
+			}
+			else{
+				if(line[0] == '='){
+					ofs << "=== " << batchNr << "/" << Nbatches << " ===\n";
+				}
+				else{
+					ofs << line << "\n";
+				}
+			}
+		}
+		else{
+			return;
+		}
+	}
+}
