@@ -29,10 +29,6 @@
 *.app
 dangling-lumping
 
-merged_network_N10000_2007_3grams.net
-
-outteststatenet.net
-
-statenetwork.net
-
-nodangling-statenetwork.net
+*.net
+!sample_statenetwork_batch.net
+!sample_statenetwork.net

@@ -18,8 +18,8 @@ const double epsilon = 1e-15;
 unsigned stou(char *s);
 
 template <class T>
-inline std::string to_string (const T& t){
-	std::stringstream ss;
+inline string to_string (const T& t){
+	stringstream ss;
 	ss << t;
 	return ss.str();
 }
@@ -88,7 +88,7 @@ private:
 	void calcEntropyRate();
 	string inFileName;
 	string outFileName;
-	std::mt19937 &mtRand;
+	mt19937 &mtRand;
 	int NphysNodes = 0;
 	int NstateNodes = 0;
 	int Nlinks = 0;
@@ -101,7 +101,7 @@ private:
 	vector<StateNode> stateNodes;
 
 public:
-	StateNetwork(string infilename,string outfilename,std::mt19937 &mtrand);
+	StateNetwork(string infilename,string outfilename,mt19937 &mtrand);
 	
 	void lumpDanglings();
 	void loadStateNetwork();
@@ -109,7 +109,7 @@ public:
 
 };
 
-StateNetwork::StateNetwork(string infilename,string outfilename,std::mt19937 &mtrand) : mtRand(mtrand){
+StateNetwork::StateNetwork(string infilename,string outfilename,mt19937 &mtrand) : mtRand(mtrand){
 	inFileName = infilename;
 	outFileName = outfilename;
 	mtRand = mtrand;
@@ -182,7 +182,7 @@ void StateNetwork::lumpDanglings(){
 			int NnonDanglings = physNodes[it->physId].stateNodeNonDanglingIndices.size();
 			if(NnonDanglings > 0){
 
-				std::uniform_int_distribution<int> randInt(0,NnonDanglings-1);
+				uniform_int_distribution<int> randInt(0,NnonDanglings-1);
 				// Find random state node
 				int lumpedStateIndex = physNodes[it->physId].stateNodeNonDanglingIndices[randInt(mtRand)];
 				// Add context to lumped state node

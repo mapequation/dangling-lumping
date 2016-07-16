@@ -63,7 +63,7 @@ int main(int argc,char *argv[]){
   cout << "-->Will read state network from file: " << inFileName << endl;
   cout << "-->Will write processed state network to file: " << outFileName << endl;
 
-  std::mt19937 mtRand(seed);
+  mt19937 mtRand(seed);
 
   StateNetwork statenetwork(inFileName,outFileName,mtRand);
 
