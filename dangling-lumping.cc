@@ -12,7 +12,7 @@ unsigned stou(char *s){
   // Call: trade <seed> <Ntries>
 int main(int argc,char *argv[]){
 
-  cout << "Version: July 16, 2016." << endl;
+  cout << "Version: July 18, 2016." << endl;
   cout << "Command: ";
   cout << argv[0];
   for(int i=1;i<argc; i++)
