@@ -23,6 +23,32 @@ struct my_ofstream : std::ofstream {
   }
 };
 
+vector<string> tokenize(const string& str,string& delimiters){
+
+	vector<string> tokens;
+
+      // skip delimiters at beginning.
+	string::size_type lastPos = str.find_first_not_of(delimiters, 0);
+
+  // find first "non-delimiter".
+	string::size_type pos = str.find_first_of(delimiters, lastPos);
+
+	while(string::npos != pos || string::npos != lastPos){
+
+        // found a token, add it to the vector.
+		tokens.push_back(str.substr(lastPos, pos - lastPos));
+
+        // skip delimiters.  Note the "not_of"
+		lastPos = str.find_first_not_of(delimiters, pos);
+
+        // find next "non-delimiter"
+		pos = str.find_first_of(delimiters, lastPos);
+	}
+
+	return tokens;
+
+}
+
 enum WriteMode { STATENODES, LINKS, CONTEXTS };
 
 template <class T>
@@ -39,6 +65,7 @@ public:
 	int stateId;
 	int updatedStateId;
 	int physId;
+	int prevPhysId;
 	double outWeight;
 	bool active = true;
 	vector<pair<int,double> > links;
@@ -52,6 +79,7 @@ StateNode::StateNode(int stateid, int physid, double outweight){
 	stateId = stateid;
 	physId = physid;
 	outWeight = outweight;
+	prevPhysId = -1;
 }
 
 class PhysNode{
@@ -59,6 +87,8 @@ public:
 	PhysNode();
 	vector<int> stateNodeIndices;
 	vector<int> stateNodeDanglingIndices;
+	unordered_map<int,vector<int> > contextStateNodeIndices;
+
 };
 
 PhysNode::PhysNode(){
@@ -161,6 +191,7 @@ void StateNetwork::lumpDanglings(){
 	// First loop records updated stateIds for lumped state nodes that other state nodes can be lumping to
 	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		StateNode &stateNode = it->second;
+		PhysNode &physNode = physNodes[stateNode.physId];
 
 		if(stateNode.outWeight > epsilon){
 			// Record updated stateIds for non-dangling state nodes
@@ -170,13 +201,13 @@ void StateNetwork::lumpDanglings(){
 		}
 		else{
 			// Lump all dangling state nodes into one state node in dangling physical nodes, and update the stateIds
-			int NnonDanglings = physNodes[stateNode.physId].stateNodeIndices.size();
+			int NnonDanglings = physNode.stateNodeIndices.size();
 			if(NnonDanglings == 0){
 
 				// When all state nodes are dangling, lump them to the first dangling state node id of the physical node
 				physDanglings.insert(stateNode.physId);
 				// Id of first dangling state node
-				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeDanglingIndices[0];
+				int lumpedStateIndex = physNode.stateNodeDanglingIndices[0];
 				if(lumpedStateIndex == stateNode.stateId){
 					// The first dangling state node in dangling physical node remains
 					stateNodeIdMapping[stateNode.stateId] = updatedStateId;
@@ -188,17 +219,21 @@ void StateNetwork::lumpDanglings(){
 	}
 
 	// Second loop records updated stateIds of lumping state nodes
+	int NwithContext = 0;
+	int NwithoutContext = 0;
 	for(unordered_map<int,StateNode>::iterator it = stateNodes.begin(); it != stateNodes.end(); it++){
 		StateNode &stateNode = it->second;
+		PhysNode &physNode = physNodes[stateNode.physId];
+
 		if(stateNode.outWeight < epsilon){
 
-			int NnonDanglings = physNodes[stateNode.physId].stateNodeIndices.size();
+			int NnonDanglings = physNode.stateNodeIndices.size();
 			
 			if(NnonDanglings == 0){
 	
 				// When all state nodes are dangling, lump them to the first dangling state node id of the physical node
 				// Id of first dangling state node
-				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeDanglingIndices[0];
+				int lumpedStateIndex = physNode.stateNodeDanglingIndices[0];
 				if(lumpedStateIndex != stateNode.stateId){
 					// All but the first dangling state node in dangling physical node are lumping to the first dangling state node
 					// Add context to lumped state node
@@ -215,9 +250,25 @@ void StateNetwork::lumpDanglings(){
 			else{
 	
 				// When dangling state node can be moved to non-dangling state node
-				uniform_int_distribution<int> randInt(0,NnonDanglings-1);
-				// Find random state node
-				int lumpedStateIndex = physNodes[stateNode.physId].stateNodeIndices[randInt(mtRand)];
+				int lumpedStateIndex = -1;
+				if(stateNode.prevPhysId >= 0){
+					// Third order. First try context lumping.
+					unordered_map<int,vector<int> >::iterator contextStates_it = physNode.contextStateNodeIndices.find(stateNode.prevPhysId);
+					if(contextStates_it != physNode.contextStateNodeIndices.end()){
+						int NcontextStates = contextStates_it->second.size();
+						uniform_int_distribution<int> randInt(0,NcontextStates-1);
+						// Find random state node with shared context
+						lumpedStateIndex = contextStates_it->second[randInt(mtRand)];
+						NwithContext++;
+					}
+				}
+				if(lumpedStateIndex < 0){
+					// If no shared context withing physical node
+					uniform_int_distribution<int> randInt(0,NnonDanglings-1);
+					// Find random state node
+					lumpedStateIndex = physNode.stateNodeIndices[randInt(mtRand)];
+					NwithoutContext++;
+				}
 				// Add context to lumped state node
 				stateNodes[lumpedStateIndex].contexts.insert(stateNodes[lumpedStateIndex].contexts.begin(),stateNode.contexts.begin(),stateNode.contexts.end());
 				
@@ -235,9 +286,8 @@ void StateNetwork::lumpDanglings(){
 	}
 
 	NphysDanglings = physDanglings.size();
-	cout << "-->Lumped " << Nlumpings << " dangling state nodes." << endl;
+	cout << "-->Lumped " << Nlumpings << " dangling state nodes (" << NwithContext << " with second-order context and " << NwithoutContext << " with first-order context)." << endl;
 	cout << "-->Found " << NphysDanglings << " dangling physical nodes. Lumped dangling state nodes into a single dangling state node." << endl;
-
 }
 
 bool StateNetwork::readLines(string &line,vector<string> &lines){
@@ -359,13 +409,23 @@ bool StateNetwork::loadStateNetworkBatch(){
 
 	// Process contexts
 	cout << "-->Processing " << Ncontexts  << " contexts..." << flush;
+	string delim = " ";
 	for(int i=0;i<Ncontexts;i++){
-			ss.clear();
-			ss.str(contextLines[i]);
-			ss >> buf;
-			int stateNodeId = atoi(buf.c_str());
-			string context = contextLines[i].substr(buf.length()+1);
-			stateNodes[stateNodeId].contexts.push_back(context);
+			vector<string> contextLine = tokenize(contextLines[i],delim);
+			int stateId = atoi(contextLine[0].c_str());
+			if(contextLine.size() > 3){
+				// Third order. Save context for context lumping.
+				int physId = atoi(contextLine[1].c_str());
+				int prevPhysId = atoi(contextLine[2].c_str());	
+				// Add non-dangling state node to lumping context
+				StateNode &stateNode = stateNodes[stateId];
+				stateNode.prevPhysId = prevPhysId; 
+				if(stateNode.outWeight > epsilon)
+					physNodes[physId].contextStateNodeIndices[prevPhysId].push_back(stateId);
+			}
+			
+			string context = contextLines[i].substr(contextLine[0].length()+1);
+			stateNodes[stateId].contexts.push_back(context);
 	}
 	cout << "done!" << endl;
 
@@ -630,9 +690,9 @@ void StateNetwork::writeLines(ifstream &ifs_tmp, ofstream &ofs, WriteMode &write
 					ofs << completeStateNodeIdMapping[source] << " " << completeStateNodeIdMapping[target] << " " << linkWeight << "\n";					
 				}
 				else if(writeMode == CONTEXTS){
-					int stateNodeId = atoi(buf.c_str());
+					int stateId = atoi(buf.c_str());
 					string context = line.substr(buf.length()+1);
-					ofs << completeStateNodeIdMapping[stateNodeId] << " " << context << "\n";
+					ofs << completeStateNodeIdMapping[stateId] << " " << context << "\n";
 				}
 			}
 			else{

@@ -1,7 +1,7 @@
 # Various flags
 CXX  = clang++
 LINK = $(CXX)
-# CXXFLAGS = -I -Wall -g
+#CXXFLAGS = -std=c++11 -Wall -g
 CXXFLAGS = -std=c++11 -Wall -O3
 LFLAGS = -lm
 
