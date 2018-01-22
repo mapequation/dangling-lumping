@@ -507,13 +507,13 @@ void StateNetwork::printStateNetwork(){
  
 	cout << "No more batches, writing results to " << outFileName << ":" << endl;
 	cout << "-->Writing header comments..." << flush;
-  ofs << "# Number of physical nodes: " << NphysNodes << "\n";
-  ofs << "# Number of state nodes: " << NstateNodes << "\n";
-  ofs << "# Number of dangling physical (and state) nodes: " << NphysDanglings << "\n";
-  ofs << "# Number of links: " << Nlinks << "\n";
-  ofs << "# Number of contexts: " << Ncontexts << "\n";
-  ofs << "# Total weight: " << weight << "\n";
-  ofs << "# Entropy rate: " << entropyRate/weight << "\n";
+  	ofs << "# Physical nodes: " << NphysNodes << "\n";
+  	ofs << "# Dangling physical nodes: " << NphysDanglings << "\n";
+  	ofs << "# State nodes: " << NstateNodes << "\n";
+  	ofs << "# Links: " << Nlinks << "\n";
+  	ofs << "# Contexts: " << Ncontexts << "\n";
+  	ofs << "# Weight: " << weight << "\n";
+  	ofs << "# Entropy rate: " << entropyRate/weight << "\n";	
 	cout << "done!" << endl;
 
 	cout << "-->Writing " << NstateNodes << " state nodes..." << flush;
@@ -601,14 +601,14 @@ void StateNetwork::compileBatches(){
 
 	cout << "Writing final results to " << outFileName << ":" << endl;
   
-  cout << "-->Writing header comments..." << flush;
-  ofs << "# Number of physical nodes: " << totNphysNodes << "\n";
-  ofs << "# Number of state nodes: " << totNstateNodes << "\n";
-  ofs << "# Number of dangling physical (and state) nodes: " << totNphysDanglings << "\n";
-  ofs << "# Number of links: " << totNlinks << "\n";
-  ofs << "# Number of contexts: " << totNcontexts << "\n";
-  ofs << "# Total weight: " << totWeight << "\n";
-  ofs << "# Entropy rate: " << entropyRate/totWeight << "\n";
+  	cout << "-->Writing header comments..." << flush;
+  	ofs << "# Physical nodes: " << totNphysNodes << "\n";
+	ofs << "# Number of dangling physical nodes: " << totNphysDanglings << "\n";  
+  	ofs << "# State nodes: " << totNstateNodes << "\n";
+  	ofs << "# Links: " << totNlinks << "\n";
+  	ofs << "# Contexts: " << totNcontexts << "\n";
+  	ofs << "# Weight: " << totWeight << "\n";
+  	ofs << "# Entropy rate: " << entropyRate/totWeight << "\n";
 	cout << "done!" << endl;
 
 	cout << "-->Relabeling and writing " << totNstateNodes << " state nodes, " << totNlinks << " links, and " << totNcontexts << " contexts:" << endl;
